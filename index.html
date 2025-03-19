@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="initial-scale=1.0">
+    <title>3D Robot Cutscene & Control with Building/Bigger Soldier</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three/examples/js/loaders/GLTFLoader.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+        canvas {
+            display: block;
+        }
+
+        /* Positioning and size for the Discord icon */
+        #discord-icon {
+            position: fixed;
+            bottom: 10px; /* Closer to the bottom */
+            right: 10px; /* Closer to the right */
+            width: 120px;  /* Slightly bigger size */
+            height: 120px; /* Slightly bigger size */
+            cursor: pointer;
+            border-radius: 50%; /* Circular shape */
+            transition: transform 0.3s ease, box-shadow 0.3s ease; /* Smooth transition for hover */
+        }
+
+        /* Hover effect applied only to the image (Discord icon) */
+        #discord-icon:hover {
+            transform: scale(1.1); /* Slight zoom effect on hover */
+            box-shadow: 0 0 15px 5px rgba(255, 0, 0, 0.8); /* Red glowing effect */
+        }
+        
+        /* The surrounding container should not have any hover effect */
+        .discord-container {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            display: inline-block;
+            border-radius: 50%;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <!-- Discord icon wrapped in a container -->
+    <div class="discord-container">
+        <img id="discord-icon" src="https://i.imgur.com/h6vyCUh.png" alt="Discord Icon" onclick="window.open('https://discord.gg/hwqdUWa3Mc', '_blank')">
+    </div>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 3);
+        directionalLight.position.set(10, 20, 10);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 4096;
+        directionalLight.shadow.mapSize.height = 4096;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 100;
+        directionalLight.shadow.radius = 3;
+        scene.add(directionalLight);
+
+        // Ground Plane
+        const groundGeometry = new THREE.PlaneGeometry(100, 100);
+        const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x505050, side: THREE.DoubleSide });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -1.5;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Load 3D Robot Model
+        const loader = new THREE.GLTFLoader();
+        let robot, mixer, walkAction, idleAction, jumpAction, activeAction;
+        loader.load('https://threejs.org/examples/models/gltf/RobotExpressive/RobotExpressive.glb', function (gltf) {
+            robot = gltf.scene;
+            robot.scale.set(2, 2, 2);
+            robot.position.set(0, -1, 0);
+            
+            robot.traverse((child) => {
+                if (child.isMesh && child.name.toLowerCase().includes("hand")) {
+                    child.visible = false;
+                }
+                if (child.isMesh) {
+                    child.material.metalness = 0.8;
+                    child.material.roughness = 0.4;
+                    child.material.envMapIntensity = 2;
+                    child.material.emissive = new THREE.Color(0xffffff);
+                    child.material.emissiveIntensity = 0.1;
+                }
+            });
+            
+            scene.add(robot);
+            console.log("Robot loaded at (0, -1, 0)");
+            
+            mixer = new THREE.AnimationMixer(robot);
+            const clips = gltf.animations;
+            jumpAction = mixer.clipAction(clips.find(clip => clip.name.toLowerCase().includes("jump")));
+            walkAction = mixer.clipAction(clips.find(clip => clip.name.toLowerCase().includes("walk")));
+            idleAction = mixer.clipAction(clips.find(clip => clip.name.toLowerCase().includes("idle")));
+            
+            if (idleAction) {
+                activeAction = idleAction;
+                idleAction.play();
+            }
+        }, undefined, function (error) {
+            console.error("Robot loading failed:", error.message);
+        });
+
+        // Load 3D Building Model (SheenChair)
+        let building;
+        loader.load('https://threejs.org/examples/models/gltf/SheenChair/gltf/SheenChair.gltf', function (gltf) {
+            building = gltf.scene;
+            building.scale.set(10, 10, 10);
+            building.position.set(10, 0, 10);
+            building.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    child.material.metalness = 0.3;
+                    child.material.roughness = 0.7;
+                    child.material.color.set(0xFF0000); // Bright red
+                }
+            });
+            scene.add(building);
+            console.log("Building (SheenChair) loaded at (10, 0, 10) with scale 10");
+        }, undefined, function (error) {
+            console.error("Building loading failed:", error.message);
+        });
+
+        // Load 3D Soldier Model with Idle Animation
+        let soldier, soldierMixer, soldierIdleAction;
+        loader.load('https://threejs.org/examples/models/gltf/Soldier.glb', function (gltf) {
+            soldier = gltf.scene;
+            soldier.scale.set(5, 5, 5); // 2.5x current size (2 * 2.5 = 5)
+            soldier.position.set(0, -1, -5); // In front of robot
+            soldier.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    // No color override, keep original
+                }
+            });
+            scene.add(soldier);
+            console.log("Soldier loaded at (0, -1, -5) with scale 5");
+            console.log("Soldier added to scene:", soldier);
+
+            // Animation setup
+            soldierMixer = new THREE.AnimationMixer(soldier);
+            const clips = gltf.animations;
+            console.log("Soldier animations available:", clips.map(clip => clip.name));
+            soldierIdleAction = soldierMixer.clipAction(clips.find(clip => clip.name.toLowerCase().includes("idle")));
+            if (soldierIdleAction) {
+                soldierIdleAction.timeScale = 1; // Normal speed for clear visibility
+                soldierIdleAction.reset().play(); // Reset and play to ensure it starts
+                console.log("Soldier idle animation running at 1x speed");
+            } else {
+                console.log("No idle animation found for Soldier");
+            }
+        }, undefined, function (error) {
+            console.error("Soldier loading failed:", error.message);
+        });
+
+        // Enable controls after cutscene
+        let enableControls = false;
+        setTimeout(() => {
+            enableControls = true;
+            document.body.requestPointerLock();
+        }, 3000);
+
+        // Camera Setup
+        const cameraOffset = new THREE.Vector3(0, 10, 15);
+        camera.position.set(0, 12, 17);
+        const playerSpeed = 0.1;
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        let isJumping = false, jumpVelocity = 0, gravity = -0.03;
+        let rotationAngle = 0;
+
+        // Smooth rotation variables
+        let targetRotation = 0;
+        let currentRotation = 0;
+        let rotationSpeed = 0.1;
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key === " " && !isJumping && robot.position.y <= -1) {
+                isJumping = true;
+                jumpVelocity = 0.2;
+                if (jumpAction && activeAction !== jumpAction) {
+                    activeAction.fadeOut(0.3);
+                    activeAction = jumpAction;
+                    jumpAction.reset().fadeIn(0.3).play();
+                }
+            }
+            if (enableControls && keys.hasOwnProperty(event.key)) {
+                keys[event.key] = true;
+                if (walkAction && activeAction !== walkAction) {
+                    activeAction.fadeOut(0.3);
+                    activeAction = walkAction;
+                    walkAction.reset().fadeIn(0.3).play();
+                }
+            }
+        });
+
+        document.addEventListener("keyup", (event) => {
+            if (enableControls && keys.hasOwnProperty(event.key)) {
+                keys[event.key] = false;
+                if (idleAction && activeAction !== idleAction && !Object.values(keys).includes(true)) {
+                    activeAction.fadeOut(0.3);
+                    activeAction = idleAction;
+                    idleAction.reset().fadeIn(0.3).play();
+                }
+            }
+        });
+
+        document.addEventListener("mousemove", (event) => {
+            if (enableControls) {
+                rotationAngle -= event.movementX * 0.002;
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!enableControls) {
+                camera.position.x = Math.sin(performance.now() * 0.001) * 20;
+                camera.position.z = Math.cos(performance.now() * 0.001) * 25;
+                if (soldier) {
+                    camera.lookAt(soldier.position); // Focus on soldier
+                } else {
+                    camera.lookAt(0, 2, 0);
+                }
+            } else if (robot) {
+                let direction = new THREE.Vector3();
+                camera.getWorldDirection(direction);
+                direction.y = 0;
+                direction.normalize();
+
+                if (keys.w) targetRotation = Math.atan2(direction.x, direction.z);
+                if (keys.s) targetRotation = Math.atan2(direction.x, direction.z) + Math.PI;
+                if (keys.a) targetRotation = robot.rotation.y + Math.PI / 2;
+                if (keys.d) targetRotation = robot.rotation.y - Math.PI / 2;
+
+                currentRotation = THREE.MathUtils.lerp(currentRotation, targetRotation, rotationSpeed);
+                robot.rotation.y = currentRotation;
+
+                if (keys.w) robot.position.addScaledVector(direction, playerSpeed);
+                if (keys.s) robot.position.addScaledVector(direction, -playerSpeed);
+                if (keys.a) robot.position.add(new THREE.Vector3(-playerSpeed, 0, 0));
+                if (keys.d) robot.position.add(new THREE.Vector3(playerSpeed, 0, 0));
+
+                const camX = robot.position.x - Math.sin(rotationAngle) * cameraOffset.z;
+                const camZ = robot.position.z - Math.cos(rotationAngle) * cameraOffset.z;
+                camera.position.set(camX, robot.position.y + cameraOffset.y, camZ);
+                camera.lookAt(robot.position.x, robot.position.y + 2, robot.position.z);
+            }
+
+            if (mixer) mixer.update(0.01);
+            if (soldierMixer) soldierMixer.update(0.01); // Update soldier animation
+
+            if (isJumping) {
+                robot.position.y += jumpVelocity;
+                jumpVelocity += gravity;
+                if (robot.position.y <= -1) {
+                    robot.position.y = -1;
+                    isJumping = false;
+                    if (idleAction && activeAction !== idleAction) {
+                        activeAction.fadeOut(0.3);
+                        activeAction = idleAction;
+                        idleAction.reset().fadeIn(0.3).play();
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+        });
+    </script>
+</body>
+</html>
